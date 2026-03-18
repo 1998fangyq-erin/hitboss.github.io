@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>暴打老板 - 渡劫一周</title>
+    <style>
+        body { margin: 0; padding: 0; background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; height: 100vh; user-select: none; touch-action: none; }
+        
+        /* 顶部状态栏 */
+        #ui-header { width: 100%; max-width: 800px; display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; font-size: 20px; font-weight: bold; color: #333; background: #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .ui-row { display: flex; justify-content: space-between; width: 100%; margin-top: 8px; }
+        #level-name { font-size: 16px; color: #666; }
+        #goal-text { color: #007bff; }
+        #hp-display { color: #d9534f; }
+        
+        /* 九宫格 */
+        #game-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 100%; max-width: 500px; padding: 10px; box-sizing: border-box; }
+        .hole { position: relative; width: 100%; aspect-ratio: 3 / 4; overflow: hidden; border-radius: 10px; }
+        .desk { position: absolute; bottom: 0; left: 0; width: 100%; height: auto; z-index: 2; pointer-events: none; }
+        .character { position: absolute; bottom: 25%; left: 15%; width: 70%; height: auto; z-index: 1; transform: translateY(120%); transition: transform 0.15s cubic-bezier(0.25, 0.46, 0.45, 0.94); cursor: pointer; pointer-events: auto; }
+        .character.up { transform: translateY(0); }
+        
+        /* 全屏遮罩页（开屏/简报/死亡/通关） */
+        #start-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; color: white; }
+        #screen-title { text-align: center; margin-bottom: 15px; font-size: 28px; }
+        #screen-desc { text-align: center; line-height: 1.6; padding: 0 20px; white-space: pre-wrap; font-size: 18px; color: #eee; }
+        #start-btn { padding: 15px 40px; font-size: 22px; font-weight: bold; color: white; background: #5cb85c; border: none; border-radius: 10px; cursor: pointer; margin-top: 30px; }
+        #start-btn:active { background: #4cae4c; transform: scale(0.95); }
+    </style>
+</head>
+<body>
+
+    <div id="ui-header">
+        <div id="level-name">准备上班...</div>
+        <div class="ui-row">
+            <div>得分: <span id="score">0</span></div>
+            <div id="goal-text">目标: --</div>
+            <div>生命: <span id="hp-display">💊💊💊</span></div>
+        </div>
+    </div>
+
+    <div id="game-board"></div>
+
+    <div id="start-screen">
+        <h1 id="screen-title">暴打傻逼老板</h1>
+        <p id="screen-desc">【入职须知】
+不要漏打你的老板 | 不要误伤你的搭子</p>
+        <button id="start-btn">下一步</button>
+    </div>
+<script>
+   const board = document.getElementById('game-board');
+    const scoreEl = document.getElementById('score');
+    const hpEl = document.getElementById('hp-display');
+    const startScreen = document.getElementById('start-screen');
+    const startBtn = document.getElementById('start-btn');
+    const levelNameEl = document.getElementById('level-name');
+    const goalTextEl = document.getElementById('goal-text');
+
+    // ==========================================
+    // 核心变量与关卡剧本配置
+    // ==========================================
+    const levels = [
+        { day: '星期一', title: '节后综合征', desc: '限时 20秒！搭子请假了，热身一下发泄你的周末怨气！', type: 'time', target: 20, hp: 99, partnerRate: 0, stayTime: 1200, spawnSpeed: 1000 },
+        { day: '星期二', title: '突击查岗', desc: '拿到 150 分通关！搭子来串门了，千万别误伤友军！', type: 'score', target: 150, hp: 3, partnerRate: 0.3, stayTime: 1000, spawnSpeed: 800 },
+        { day: '星期三', title: '夺命连环Call', desc: '在狂轰滥炸的需求中存活 30 秒！睁大眼睛！千万别手抖！', type: 'survive', target: 30, hp: 3, partnerRate: 0.4, stayTime: 800, spawnSpeed: 600 },
+        { day: '星期四', title: '极致甩锅', desc: '拿到 150 分！你只有 1 滴血，零容错的极限挑战！', type: 'score', target: 150, hp: 1, partnerRate: 0.5, stayTime: 700, spawnSpeed: 550 },
+        // 🌟 第五关重做：一滴血的无尽加速模式！
+        { day: '星期五', title: '无尽加班', desc: '【无尽模式】你只有 1 滴血！\n分数越高速度越快！\n看看你的极限在哪里，挑战最高分！', type: 'endless', target: '无尽', hp: 1, partnerRate: 0.5, stayTime: 700, spawnSpeed: 550 }
+    ];
+
+    let currentLevel = 0;
+    let score = 0;
+    let hp = 3;
+    let isPlaying = false;
+    let gameLoop;
+    let timerInterval;
+    let timeLeft = 0;
+    let holes = [];
+    
+    // 🌟 无尽模式专属动态变量与最高分记录
+    let currentSpawnSpeed = 0;
+    let currentStayTime = 0;
+    let highestScore = localStorage.getItem('bossHighScore') || 0; 
+    let screenState = 'intro'; 
+
+    // ==========================================
+    // 状态机与关卡管理器
+    // ==========================================
+    function showBriefing() {
+        screenState = 'briefing';
+        const level = levels[currentLevel];
+        document.getElementById('screen-title').innerText = `【当前任务】${level.day} · ${level.title}`;
+        document.getElementById('screen-desc').innerText = level.desc;
+        startBtn.innerText = '打卡上班';
+        startScreen.style.display = 'flex';
+    }
+
+    function startLevel() {
+        screenState = 'playing';
+        const level = levels[currentLevel];
+        score = 0;
+        hp = level.hp;
+        timeLeft = (level.type === 'time' || level.type === 'survive') ? level.target : 0;
+        
+        // 初始化当前关卡的速度
+        currentSpawnSpeed = level.spawnSpeed;
+        currentStayTime = level.stayTime;
+        isPlaying = true;
+
+        levelNameEl.innerText = `${level.day} · ${level.title}`;
+        scoreEl.innerText = score;
+        updateHpUI();
+        updateGoalUI(level);
+
+        startScreen.style.display = 'none';
+        if(gameLoop) clearTimeout(gameLoop); // 换成了 clearTimeout，适配动态加速
+        if(timerInterval) clearInterval(timerInterval);
+        
+        initBoard(); 
+
+        // 启动动态生成循环
+        scheduleNextPeep(level);
+
+        if (level.type === 'time' || level.type === 'survive') {
+            timerInterval = setInterval(() => {
+                if (!isPlaying) return;
+                timeLeft--;
+                goalTextEl.innerText = `倒计时: ${timeLeft}秒`;
+                if (timeLeft <= 0) checkLevelComplete();
+            }, 1000);
+        }
+    }
+
+    // 动态生成地鼠的循环引擎
+    function scheduleNextPeep(level) {
+        if (!isPlaying) return;
+        peep(level);
+        // 使用 setTimeout 替代 setInterval，这样每次循环都能读取最新的、变快了的速度！
+        gameLoop = setTimeout(() => scheduleNextPeep(level), currentSpawnSpeed);
+    }
+
+    function updateGoalUI(level) {
+        if (level.type === 'time' || level.type === 'survive') goalTextEl.innerText = `目标: 活过 ${level.target}秒`;
+        else if (level.type === 'score') goalTextEl.innerText = `目标: 拿够 ${level.target}分`;
+        else if (level.type === 'endless') goalTextEl.innerText = `历史最高分: ${highestScore}`; // 周五显示最高分
+    }
+
+    function updateHpUI() {
+        if (hp > 10) {
+            hpEl.innerText = '🛡️无敌';
+        } else {
+            let hpStr = '';
+            for(let i=0; i<hp; i++) hpStr += '💊';
+            hpEl.innerText = hpStr || '濒死';
+        }
+    }
+
+    function checkLevelComplete() {
+        if (!isPlaying) return;
+        const level = levels[currentLevel];
+        let isWin = false;
+
+        if ((level.type === 'time' || level.type === 'survive') && timeLeft <= 0 && hp > 0) isWin = true;
+        if (level.type === 'score' && score >= level.target) isWin = true;
+        // 无尽模式永远不会 triggers isWin = true，只能战死！
+
+        if (isWin) levelVictory();
+    }
+
+    function levelVictory() {
+        isPlaying = false;
+        clearTimeout(gameLoop);
+        if(timerInterval) clearInterval(timerInterval);
+        holes.forEach(h => clearHole(h));
+
+        setTimeout(() => {
+            currentLevel++;
+            if (currentLevel >= levels.length) {
+                // 如果后续你还想加关卡，这里是终极通关逻辑（目前周五无尽模式不会走到这里）
+                currentLevel = 0; 
+            } else {
+                screenState = 'transition';
+                startScreen.style.display = 'flex';
+                document.getElementById('screen-title').innerText = `顺利度过 ${levels[currentLevel-1].day}！`;
+                document.getElementById('screen-desc').innerText = '喘口气，准备迎接明天的挑战。';
+                startBtn.innerText = `查看 ${levels[currentLevel].day} 任务`;
+            }
+        }, 500);
+    }
+
+    function endGame() {
+        isPlaying = false;
+        clearTimeout(gameLoop);
+        if(timerInterval) clearInterval(timerInterval);
+        holes.forEach(h => clearHole(h));
+        
+        setTimeout(() => {
+            screenState = 'transition';
+            startScreen.style.display = 'flex';
+            
+            // 专属死亡页面：判断是不是死在了周五的无尽模式
+            if (levels[currentLevel].type === 'endless') {
+                document.getElementById('screen-title').innerText = '加班猝死！';
+                document.getElementById('screen-desc').innerText = `【无尽加班结算】\n本次得分: ${score}\n历史最高分: ${highestScore}\n\n太卷了，重回周一修养一下吧！`;
+            } else {
+                document.getElementById('screen-title').innerText = '你被开除了！';
+                document.getElementById('screen-desc').innerText = `倒在了 ${levels[currentLevel].day}，赶紧重新找工作吧。`;
+            }
+            
+            startBtn.innerText = '重新入职 (回到周一)';
+            currentLevel = 0; 
+        }, 500);
+    }
+
+    // ==========================================
+    // 核心战斗与点击引擎
+    // ==========================================
+    function initBoard() {
+        board.innerHTML = '';
+        holes = [];
+        for (let i = 0; i < 9; i++) {
+            const holeEl = document.createElement('div');
+            holeEl.className = 'hole';
+            const charImg = document.createElement('img');
+            charImg.className = 'character';
+            const deskImg = document.createElement('img');
+            deskImg.className = 'desk';
+            deskImg.src = 'desk.png';
+
+            holeEl.appendChild(charImg);
+            holeEl.appendChild(deskImg);
+            board.appendChild(holeEl);
+            
+            const holeData = { element: holeEl, charImg: charImg, isUp: false, type: '', isHit: false, timeout: null };
+            holes.push(holeData);
+
+            holeEl.addEventListener('mousedown', () => whack(holeData, charImg));
+            holeEl.addEventListener('touchstart', (e) => { e.preventDefault(); whack(holeData, charImg); });
+        }
+    }
+
+    function peep(level) {
+        if (!isPlaying) return;
+        const availableHoles = holes.filter(h => !h.isUp);
+        if (availableHoles.length === 0) return;
+        const hole = availableHoles[Math.floor(Math.random() * availableHoles.length)];
+
+        hole.type = Math.random() < level.partnerRate ? 'partner' : 'boss';
+        hole.charImg.src = hole.type === 'boss' ? 'boss.png' : 'partner.png';
+        hole.isUp = true;
+        hole.isHit = false;
+        hole.charImg.classList.add('up');
+
+        // 🌟 核心修改：使用动态的 currentStayTime
+        hole.timeout = setTimeout(() => {
+            hole.charImg.classList.remove('up');
+            hole.isUp = false;
+
+            if (hole.type === 'boss' && !hole.isHit && level.type !== 'time') {
+                takeDamage("漏打老板！"); 
+            }
+        }, currentStayTime);
+    }
+
+    function whack(holeData, charImg) {
+        if (!isPlaying || !holeData.isUp) return;
+        const level = levels[currentLevel];
+
+        if (holeData.type === 'boss') {
+            if (holeData.isHit) return; 
+            holeData.isHit = true; 
+            score += 10;
+            scoreEl.innerText = score;
+            charImg.src = 'boss-hit.png'; 
+
+            // 🌟 星期五无尽模式：加速逻辑 & 记录最高分
+            if (level.type === 'endless') {
+                // 每得 50 分（打中5个老板），速度变快一档！
+                if (score % 50 === 0) {
+                    currentSpawnSpeed = Math.max(250, currentSpawnSpeed - 40); // 最快间隔 250ms
+                    currentStayTime = Math.max(350, currentStayTime - 40);   // 最短停留 350ms
+                }
+                // 刷新最高分记录
+                if (score > highestScore) {
+                    highestScore = score;
+                    localStorage.setItem('bossHighScore', highestScore);
+                    goalTextEl.innerText = `历史最高分: ${highestScore}`;
+                }
+            }
+            
+            clearTimeout(holeData.timeout);
+            setTimeout(() => {
+                charImg.classList.remove('up');
+                holeData.isUp = false;
+                checkLevelComplete(); 
+            }, 150);
+
+        } else if (holeData.type === 'partner') {
+            if (holeData.isHit) return;
+            holeData.isHit = true;
+            clearTimeout(holeData.timeout);
+            charImg.classList.remove('up');
+            holeData.isUp = false;
+            takeDamage("误伤搭子！");
+        }
+    }
+
+    function takeDamage(reason) {
+        if (!isPlaying || hp > 10) return; 
+        hp--;
+        updateHpUI();
+        
+        document.body.style.backgroundColor = '#ffcccc';
+        setTimeout(() => { document.body.style.backgroundColor = '#f0f2f5'; }, 150);
+        
+        if (hp <= 0) endGame();
+    }
+
+    function clearHole(h) {
+        clearTimeout(h.timeout);
+        h.charImg.classList.remove('up');
+        h.isUp = false;
+    }
+
+    startBtn.addEventListener('click', () => {
+        if (screenState === 'intro' || screenState === 'transition') {
+            showBriefing();
+        } else if (screenState === 'briefing') {
+            startLevel();
+        }
+    });
+
+</script>
+</body>
+</html>
