@@ -341,8 +341,8 @@
             startScreen.style.display = 'flex';
             
             if (levels[currentLevel].type === 'endless') {
-                document.getElementById('screen-title').innerText = '又得加班！';
-                document.getElementById('screen-desc').innerText = `【拒绝加班结算】\n本次得分: ${score}\n历史最高分: ${highestScore}\n\n太难了，重回周一的炼狱吧！`;
+                document.getElementById('screen-title').innerText = '奔向周末！';
+                document.getElementById('screen-desc').innerText = `【拒绝加班】\n本次得分: ${score}\n历史最高分: ${highestScore}\n\n下周一又是一条好汉！`;
             } else {
                 document.getElementById('screen-title').innerText = '你被开除了！';
                 document.getElementById('screen-desc').innerText = `倒在了 ${levels[currentLevel].day}，赶紧重新找工作吧。`;
