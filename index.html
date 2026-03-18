@@ -12,8 +12,12 @@
         .ui-row { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: 8px; }
         .header-top { display: flex; justify-content: space-between; align-items: center; width: 100%; }
         #level-name { font-size: 16px; color: #666; font-weight: normal; }
-        #menu-btn { font-size: 22px; cursor: pointer; background: #f0f2f5; padding: 4px 10px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); transition: transform 0.1s; }
-        #menu-btn:active { transform: scale(0.9); }
+        
+        /* 右上角按钮组 */
+        .header-btns { display: flex; gap: 10px; }
+        .icon-btn { font-size: 22px; cursor: pointer; background: #f0f2f5; padding: 4px 10px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); transition: transform 0.1s; display: flex; justify-content: center; align-items: center; border: none; }
+        .icon-btn:active { transform: scale(0.9); }
+        
         #goal-text { color: #007bff; }
         #hp-display { color: #d9534f; }
         
@@ -24,7 +28,7 @@
         .character { position: absolute; bottom: 25%; left: 15%; width: 70%; height: auto; z-index: 1; transform: translateY(120%); transition: transform 0.15s cubic-bezier(0.25, 0.46, 0.45, 0.94); cursor: pointer; pointer-events: auto; }
         .character.up { transform: translateY(0); }
         
-        /* 全屏遮罩页（开屏/简报/死亡/通关/暂停） */
+        /* 全屏遮罩页 */
         .overlay-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; color: white; }
         .screen-title { text-align: center; margin-bottom: 15px; font-size: 28px; font-weight: bold; }
         .screen-desc { text-align: center; line-height: 1.6; padding: 0 20px; white-space: pre-wrap; font-size: 18px; color: #eee; }
@@ -40,7 +44,10 @@
     <div id="ui-header">
         <div class="header-top">
             <div id="level-name">准备上班...</div>
-            <div id="menu-btn">🔁</div>
+            <div class="header-btns">
+                <button id="mute-btn" class="icon-btn">🔊</button>
+                <button id="menu-btn" class="icon-btn">🔁</button>
+            </div>
         </div>
         <div class="ui-row">
             <div>✅: <span id="score">0</span></div>
@@ -64,6 +71,8 @@
         <button id="resume-btn" class="action-btn btn-green">▶️ 继续发泄</button>
         <button id="restart-all-btn" class="action-btn btn-red">🔙 在周一重生</button>
     </div>
+
+    <audio id="bgm" src="bgm.mp3" loop preload="auto"></audio>
 
 <script>
     const board = document.getElementById('game-board');
@@ -100,6 +109,33 @@
     // 🌟 全局图片预加载
     const preloadImages = ['boss.png', 'boss-hit.png', 'partner.png', 'partner-hit.png', 'desk.png'];
     preloadImages.forEach(src => { const img = new Image(); img.src = src; });
+
+    // ==========================================
+    // 🎵 BGM 音乐控制系统
+    // ==========================================
+    const bgm = document.getElementById('bgm');
+    const muteBtn = document.getElementById('mute-btn');
+    let isMuted = false;
+
+    // 监听静音按钮点击
+    muteBtn.addEventListener('click', () => {
+        isMuted = !isMuted;
+        bgm.muted = isMuted;
+        muteBtn.innerText = isMuted ? '🔇' : '🔊';
+        
+        // 如果取消静音且还没播放，顺手播起来
+        if (!isMuted && bgm.paused) {
+            bgm.play().catch(e => console.log('等待用户交互'));
+        }
+    });
+
+    // 突破浏览器限制：用户第一次点击屏幕任意位置时，开始播放音乐
+    document.body.addEventListener('pointerdown', () => {
+        if (!isMuted && bgm.paused) {
+            bgm.play().catch(e => console.log('BGM启动等待中...'));
+        }
+    }, { once: true }); // once: true 表示这个监听器触发一次后就自动销毁，不占资源
+
 
     // ==========================================
     // 断点续传（存档恢复）系统
@@ -305,8 +341,8 @@
             startScreen.style.display = 'flex';
             
             if (levels[currentLevel].type === 'endless') {
-                document.getElementById('screen-title').innerText = '奔向周末！';
-                document.getElementById('screen-desc').innerText = `【拒绝加班】\n本次得分: ${score}\n历史最高分: ${highestScore}\n\n下周一又是一条好汉！`;
+                document.getElementById('screen-title').innerText = '又得加班！';
+                document.getElementById('screen-desc').innerText = `【拒绝加班结算】\n本次得分: ${score}\n历史最高分: ${highestScore}\n\n太难了，重回周一的炼狱吧！`;
             } else {
                 document.getElementById('screen-title').innerText = '你被开除了！';
                 document.getElementById('screen-desc').innerText = `倒在了 ${levels[currentLevel].day}，赶紧重新找工作吧。`;
@@ -335,7 +371,7 @@
     });
 
     document.getElementById('resume-btn').addEventListener('click', () => {
-        if (screenState !== 'paused') return; // 🌟 防连点外挂！
+        if (screenState !== 'paused') return; 
         resumeGame();
     });
 
@@ -369,7 +405,6 @@
     }
 
     function initBoard() {
-        // 🌟 核弹级清场：不管三七二十一，掐断旧元素的所有倒计时！防止幽灵暴击！
         if (holes && holes.length > 0) {
             holes.forEach(h => clearHole(h));
         }
@@ -410,7 +445,7 @@
         hole.charImg.classList.add('up');
 
         hole.timeout = setTimeout(() => {
-            if (!isPlaying) return; // 🌟 双重保护，如果游戏已暂停，定时器失效
+            if (!isPlaying) return; 
             hole.charImg.classList.remove('up');
             hole.isUp = false;
 
@@ -444,7 +479,6 @@
             }
             
             clearTimeout(holeData.timeout);
-            // 🌟 把缩回的定时器也记录下来，方便全局清场
             holeData.timeout = setTimeout(() => {
                 charImg.classList.remove('up');
                 holeData.isUp = false;
@@ -458,7 +492,6 @@
             charImg.src = 'partner-hit.png'; 
             
             clearTimeout(holeData.timeout);
-            // 🌟 同上，强制追踪缩回定时器
             holeData.timeout = setTimeout(() => {
                 charImg.classList.remove('up');
                 holeData.isUp = false;
